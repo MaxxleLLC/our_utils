@@ -1,5 +1,6 @@
 import inspect
 import google.cloud.bigquery.docs.snippets as snippets
+import re
 
 LICENSE = '''# Copyright 2019 Google LLC
 #
@@ -23,14 +24,51 @@ RST_TABLES = 'C:/git_reps/google-cloud-python/bigquery/docs/usage/tables.rst'
 SAMPLES_DIR = 'C:/git_reps/google-cloud-python/bigquery/samples/'
 
 
-def write_test(file_name, name):
+def write_test(file_name, name, obj):
+    code = inspect.getsource(obj)
+
     with open(file_name, 'w') as test_file:
         test_file.write(LICENSE)
         test_file.write(
             'from .. import {}\n\n\n'.format(name[5:])
         )
+
         test_file.write(
-            'def {}(capsys, client):'.format(name)
+            'def {}(capsys, client):\n\n'.format(name)
+        )
+
+        if re.compile(r'\bos\b').findall(code):
+            test_file.write(
+                '    import os\n\n'
+            )
+
+        if re.compile(r'\bsix\b').findall(code):
+            test_file.write(
+                '    import six\n\n'
+            )
+
+        if re.compile(r'\bretry_storage_errors\b').findall(code):
+            test_file.write(
+                '''    from test_utils.retry import RetryErrors
+    from google.api_core.exceptions import InternalServerError
+    from google.api_core.exceptions import ServiceUnavailable
+    from google.api_core.exceptions import TooManyRequests
+    retry_storage_errors = RetryErrors(
+        (TooManyRequests, InternalServerError, ServiceUnavailable)
+    )\n\n'''
+            )
+
+        if re.compile(r'\bSCHEMA\b').findall(code):
+            test_file.write(
+                '''    schema = [
+        bigquery.SchemaField("full_name", "STRING", mode="REQUIRED"),
+        bigquery.SchemaField("age", "INTEGER", mode="REQUIRED"),
+    ]\n\n'''
+            )
+
+        test_file.write(
+            '''    out, err = capsys.readouterr()
+    assert '''
         )
 
 
@@ -124,7 +162,8 @@ for name, obj in inspect.getmembers(snippets):
 
         write_test(
             SAMPLES_DIR + 'tests/' + name + '.py',
-            name
+            name,
+            obj
         )
 
 

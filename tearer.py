@@ -1,3 +1,4 @@
+"""Script to move every snippet to it's own file, add/update rst-marking, create test-file template, move tags."""
 import inspect
 import google.cloud.bigquery.docs.snippets as snippets
 import re

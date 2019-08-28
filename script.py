@@ -6,10 +6,10 @@ import bigquery.google.cloud.bigquery
 OLD_TYPES = re.compile(
     r"""
     :type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)\n
-    :param[\s]+[\S]+:[\s\n]+(?P<arg_doc>[\s\S]+)\n
-    :rtype:(?P<rtype>[\s\S\n]+)\n
-    :returns:(?P<returns>[\s\S\n]+)(\n|$)
-    (:raises:[\s]+(?P<raises>[\s\S\n]+))?
+    :param[\s]+[\S]+:[\s\n]+(?P<arg_doc>[^:]+)
+    # :rtype:(?P<rtype>[\s\S\n]+)\n
+    # :returns:(?P<returns>[\s\S\n]+)(\n|$)
+    # (:raises:[\s]+(?P<raises>[\s\S\n]+))?
     """,
     re.VERBOSE
 )
@@ -27,15 +27,15 @@ def check_old_types(docs):
             print()
             print('regex_doc: ')
             print(match.group("arg_doc"))
-            print()
-            print('regex_raises: ')
-            print(match.group("raises"))
-            print()
-            print('rtype: ')
-            print(match.group("rtype"))
-            print()
-            print('returns: ')
-            print(match.group("returns"))
+            # print()
+            # print('regex_raises: ')
+            # print(match.group("raises"))
+            # print()
+            # print('rtype: ')
+            # print(match.group("rtype"))
+            # print()
+            # print('returns: ')
+            # print(match.group("returns"))
 
         print('#############')
 

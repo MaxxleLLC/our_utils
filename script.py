@@ -8,8 +8,8 @@ OLD_TYPES = re.compile(
     :type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)\n
     :param[\s]+[\S]+:[\s\n]+(?P<arg_doc>[\s\S]+)\n
     :rtype:(?P<rtype>[\s\S\n]+)\n
-    :returns:(?P<returns>[\s\S\n]+)\n
-    :raises:(?P<raises>[\s\S\n]+)
+    :returns:(?P<returns>[\s\S\n]+)(\n|$)
+    (:raises:[\s]+(?P<raises>[\s\S\n]+))?
     """,
     re.VERBOSE
 )
@@ -53,7 +53,7 @@ def process_members(obj):
         elif inspect.ismethod(member):
             docs = inspect.getdoc(member)
             print('method: ', name)
-            if docs:# and name == 'positional':
+            if docs:
                 check_old_types(docs)
         elif inspect.isclass(member):
             docs = inspect.getdoc(member)

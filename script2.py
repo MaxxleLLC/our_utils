@@ -5,7 +5,8 @@ import google.cloud.bigquery.dbapi
 import mock
 
 OLD_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
-OLD_PARAM = re.compile(r":param[\s]+([\S]+):[\s\n]+(?P<arg_docs>[\S\s]+)")
+OLD_PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")
+SPACES = re.compile(r"(?P<spaces>[\s]+):param")
 
 processed_objects = []
 
@@ -20,13 +21,15 @@ def write_to_file(old, new, addr):
             file.write(lines)
 
 
-def get_indexes(string, start, end):
+def get_indexes(string, start, end, temp):
     start_ind = string.index(start)
     if end in string[start_ind:]:
         end_ind = string.index(end, start_ind)
     else:
         end_ind = len(string) - 1
-    return start_ind, end_ind
+
+    string = strip_n_news(string[start_ind:end_ind])
+    return temp.search(string), string
 
 
 def strip_n_news(string):
@@ -36,25 +39,44 @@ def strip_n_news(string):
     return string
 
 
-def format_docs(docs, tag):
+def format_docs(docs, tag, num):
     if tag == ":type ":
-        type_start, type_end = get_indexes(docs, tag, ":param ")
-        type_statement = strip_n_news(docs[type_start:type_end])
-        match_type = OLD_TYPE.search(type_statement)
+        match_type, type_statement = get_indexes(docs, tag, ":param ", OLD_TYPE)
+        match_param, param_statement = get_indexes(docs, ":param ", "\n\n", OLD_PARAM)
 
-        type_start, type_end = get_indexes(docs, ":param ", "\n\n")
-        param_statement = strip_n_news(docs[type_start:type_end])
-        match_param = OLD_PARAM.search(param_statement)
+        if "Check client or verify over-ride." in docs:
+            print()
 
         if match_param is not None and match_type is not None:
-            docs = docs.replace(type_statement + "\n", "")
-            new_param = "{name} ({type_}): {docs}\n".format(
+            arg_docs = match_param.group("arg_docs")
+            if "\n" in arg_docs:
+                if not arg_docs.startswith("\n"):
+                    spaces = SPACES.search(docs).group("spaces")[1:] + " " * 4
+                    arg_docs = arg_docs.split("\n")
+                    for index, line in enumerate(arg_docs):
+                        if line:
+                            arg_docs[index] = spaces + line.lstrip()
+                    arg_docs = "\n" + "\n".join(arg_docs)
+                else:
+                    arg_docs = arg_docs[1:]
+                    spaces = " " * (len(arg_docs) - len(arg_docs.lstrip()))
+                    arg_docs = arg_docs.split("\n")
+                    for index, line in enumerate(arg_docs):
+                        if line:
+                            arg_docs[index] = spaces + line.lstrip()
+                    arg_docs = "\n" + "\n".join(arg_docs)
+            else:
+                arg_docs = " " + arg_docs.lstrip()
+
+            parts = docs.split(type_statement + "\n")
+            docs = parts[0] + parts[1].lstrip()
+            new_param = "{name} ({type_}):{docs}".format(
                 name=match_type.group("arg_name"),
                 type_=match_type.group("arg_type"),
-                docs=match_param.group("arg_docs"),
+                docs=arg_docs,
             )
 
-            docs = docs.replace(param_statement + "\n", new_param)
+            docs = docs.replace(param_statement, new_param)
 
     return docs
 
@@ -62,8 +84,8 @@ def format_docs(docs, tag):
 def replacements_for_args(docs, type_):
     rold = docs
     for tag in (":type ",):
-        for _ in range(docs.count(tag)):
-            docs = format_docs(docs, tag)
+        for num in range(docs.count(tag)):
+            docs = format_docs(docs, tag, num)
     return rold, docs
 
 
@@ -82,7 +104,7 @@ def process_members(obj):
             except TypeError:
                 continue
 
-            if "bigquery" not in addr:
+            if "google\cloud" not in addr:
                 continue
 
             is_method = inspect.ismethod(member) or isinstance(member, property)

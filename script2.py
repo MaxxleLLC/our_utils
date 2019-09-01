@@ -16,6 +16,9 @@ SPACES = re.compile(r"(?P<spaces>[\s]+):param")
 RSPACES = re.compile(r"\n+(?P<spaces>[\s]+):rtype")
 RETURN_SPACES = re.compile(r"\n+(?P<spaces>[\s]+):raises:")
 
+ARG_TYPE_NAME = re.compile(r"\((?P<arg_type_name>[\S]+)\):")
+CLASS_STATEMENT = re.compile(r":class:`[~]?(?P<class_name>[\S\d]+)`")
+
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
 
 processed_objects = []
@@ -166,6 +169,18 @@ def replacements_for_args(docs, type_):
 
     if ":returns:" in docs:
         docs = format_returns(docs, type_)
+
+    match_iter = ARG_TYPE_NAME.finditer(docs)
+    for match in match_iter:
+        name = match.group("arg_type_name")
+        if name in ("dict", "list", "tuple", "iterable", "set", "sequence", "iterator"):
+            name = name.capitalize()
+
+        docs = docs.replace(match.group(0), "(" + name + "):")
+
+    match_iter = CLASS_STATEMENT.finditer(docs)
+    for match in match_iter:
+        docs = docs.replace(match.group(0), match.group("class_name"))
 
     return rold, docs
 

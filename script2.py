@@ -4,13 +4,17 @@ import google.cloud.bigquery
 import google.cloud.bigquery.dbapi
 import mock
 
-OLD_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
-OLD_PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")
+ARG_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
+PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")
 
 RETURNS_TYPE = re.compile(r":rtype:[\s\n]+(?P<rtype>[\S\s]+)")
 RETURNS_DOCS = re.compile(r":returns:(?P<rdocs>[\S\s]+)")
 
+RAISES = re.compile(r":raises:[\s\n]+(?P<raises>[\S\s]+)")
+
 SPACES = re.compile(r"(?P<spaces>[\s]+):param")
+RSPACES = re.compile(r"\n+(?P<spaces>[\s]+):rtype")
+RETURN_SPACES = re.compile(r"\n+(?P<spaces>[\s]+):raises:")
 
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
 
@@ -19,6 +23,9 @@ processed_objects = []
 
 def write_to_file(old, new, addr):
     if old and new and old != new:
+        if "\n\n\n" in new:
+            new = new.replace("\n\n\n", "\n\n")
+
         with open(addr, "r") as file:
             lines = file.read()
 
@@ -39,6 +46,7 @@ def add_spaces(docs, spaces):
 
 def get_indexes(string, start, end, temp):
     start_ind = string.index(start)
+
     if end in string[start_ind:]:
         end_ind = string.index(end, start_ind)
     else:
@@ -55,9 +63,14 @@ def strip_n_news(string):
     return string
 
 
+def delete_line(docs, contains):
+    parts = docs.split(contains + "\n")
+    return parts[0] + parts[1].lstrip()
+
+
 def format_params(docs, num, type_):
-    match_type, type_statement = get_indexes(docs, ":type ", ":param ", OLD_TYPE)
-    match_param, param_statement = get_indexes(docs, ":param ", "\n\n", OLD_PARAM)
+    match_type, type_statement = get_indexes(docs, ":type ", ":param ", ARG_TYPE)
+    match_param, param_statement = get_indexes(docs, ":param ", "\n\n", PARAM)
 
     if match_param is not None and match_type is not None:
         arg_docs = match_param.group("arg_docs")
@@ -72,8 +85,7 @@ def format_params(docs, num, type_):
         else:
             arg_docs = " " + arg_docs.lstrip()
 
-        parts = docs.split(type_statement + "\n")
-        docs = parts[0] + parts[1].lstrip()
+        docs = delete_line(docs, type_statement)
 
         new_param = "{title}    {name} ({type_}):{docs}".format(
             title="Args:\n" + NUM_SPACES[type_] if num == 0 else "",
@@ -87,21 +99,58 @@ def format_params(docs, num, type_):
     return docs
 
 
+def format_raises(docs, type_):
+    match, raises_statement = get_indexes(docs, ":raises:", "$", RAISES)
+
+    if match is not None:
+        rdocs = match.group("raises")
+
+        if "\n" in rdocs:
+            if not rdocs.startswith("\n"):
+                spaces = RETURN_SPACES.search(docs).group("spaces")
+            else:
+                rdocs = rdocs[1:]
+                spaces = " " * (len(rdocs) - len(rdocs.lstrip()))
+
+            rdocs = add_spaces(rdocs, spaces)
+        else:
+            rdocs = " " + rdocs.lstrip()
+
+        new_raises = "Raises:{docs}".format(spaces=NUM_SPACES[type_], docs=rdocs)
+        docs = docs.replace(raises_statement, new_raises)
+
+    return docs
+
+
 def format_returns(docs, type_):
     match_type, type_statement = get_indexes(docs, ":rtype", ":returns:", RETURNS_TYPE)
-    match_param, param_statement = get_indexes(docs, ":returns:", "\n\n", RETURNS_DOCS)
+    match_param, param_statement = get_indexes(
+        docs, ":returns:", "Raises:", RETURNS_DOCS
+    )
 
     if match_param is not None and match_type is not None:
         rdocs = match_param.group("rdocs")
 
-        parts = docs.split(type_statement + "\n")
-        docs = parts[0] + parts[1].lstrip()
+        if "\n" in rdocs:
+            if not rdocs.startswith("\n"):
+                spaces = RSPACES.search(docs).group("spaces") + " " * 4
+            else:
+                rdocs = rdocs[1:]
+                spaces = " " * (len(rdocs) - len(rdocs.lstrip()))
+
+            rdocs = add_spaces(rdocs, spaces)
+        else:
+            rdocs = " " + rdocs.lstrip()
+
+        docs = delete_line(docs, type_statement)
 
         new_return = "Returns:\n{spaces}    ({type_}):{docs}".format(
-            spaces=NUM_SPACES[type_],
-            type_=match_type.group("rtype"),
-            docs=match_param.group("rdocs"),
+            spaces=NUM_SPACES[type_], type_=match_type.group("rtype"), docs=rdocs
         )
+
+        if "Raises:" in docs:
+            new_return += "\n"
+
         docs = docs.replace(param_statement, new_return)
 
     return docs
@@ -112,12 +161,17 @@ def replacements_for_args(docs, type_):
     for num in range(docs.count(":type ")):
         docs = format_params(docs, num, type_)
 
+    if ":raises:" in docs:
+        docs = format_raises(docs, type_)
+
     if ":returns:" in docs:
         docs = format_returns(docs, type_)
+
     return rold, docs
 
 
 def untouched(docs):
+    """Function to override inspect.cleandoc() to avoid docs formating."""
     return docs
 
 
@@ -129,8 +183,10 @@ def rewrite_docs(docs, type_, addr):
 
 
 def process_members(obj):
+    # disabling inspect docs formating
     with mock.patch("inspect.cleandoc", side_effect=untouched):
         for name, member in inspect.getmembers(obj):
+            # skip processed members and builtins
             if member in processed_objects or name.startswith("__"):
                 continue
 
@@ -139,7 +195,7 @@ def process_members(obj):
             except TypeError:
                 continue
 
-            if "google\cloud" not in addr:
+            if "google\cloud" not in addr:  # process only Google modules
                 continue
 
             is_method = inspect.ismethod(member) or isinstance(member, property)

@@ -6,6 +6,10 @@ import mock
 
 OLD_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
 OLD_PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")
+
+RETURNS_TYPE = re.compile(r":rtype:[\s\n]+(?P<rtype>[\S\s]+)")
+RETURNS_DOCS = re.compile(r":returns:(?P<rdocs>[\S\s]+)")
+
 SPACES = re.compile(r"(?P<spaces>[\s]+):param")
 
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
@@ -51,44 +55,65 @@ def strip_n_news(string):
     return string
 
 
-def format_docs(docs, tag, num, type_):
-    if tag == ":type ":
-        match_type, type_statement = get_indexes(docs, tag, ":param ", OLD_TYPE)
-        match_param, param_statement = get_indexes(docs, ":param ", "\n\n", OLD_PARAM)
+def format_params(docs, num, type_):
+    match_type, type_statement = get_indexes(docs, ":type ", ":param ", OLD_TYPE)
+    match_param, param_statement = get_indexes(docs, ":param ", "\n\n", OLD_PARAM)
 
-        if match_param is not None and match_type is not None:
-            arg_docs = match_param.group("arg_docs")
-            if "\n" in arg_docs:
-                if not arg_docs.startswith("\n"):
-                    spaces = SPACES.search(docs).group("spaces")[1:] + " " * 4
-                else:
-                    arg_docs = arg_docs[1:]
-                    spaces = " " * (len(arg_docs) - len(arg_docs.lstrip()))
-
-                arg_docs = add_spaces(arg_docs, spaces)
+    if match_param is not None and match_type is not None:
+        arg_docs = match_param.group("arg_docs")
+        if "\n" in arg_docs:
+            if not arg_docs.startswith("\n"):
+                spaces = SPACES.search(docs).group("spaces")[1:] + " " * 4
             else:
-                arg_docs = " " + arg_docs.lstrip()
+                arg_docs = arg_docs[1:]
+                spaces = " " * (len(arg_docs) - len(arg_docs.lstrip()))
 
-            parts = docs.split(type_statement + "\n")
-            docs = parts[0] + parts[1].lstrip()
+            arg_docs = add_spaces(arg_docs, spaces)
+        else:
+            arg_docs = " " + arg_docs.lstrip()
 
-            new_param = "{title}    {name} ({type_}):{docs}".format(
-                title="Args:\n" + NUM_SPACES[type_] if num == 0 else "",
-                name=match_type.group("arg_name"),
-                type_=match_type.group("arg_type"),
-                docs=arg_docs,
-            )
+        parts = docs.split(type_statement + "\n")
+        docs = parts[0] + parts[1].lstrip()
 
-            docs = docs.replace(param_statement, new_param)
+        new_param = "{title}    {name} ({type_}):{docs}".format(
+            title="Args:\n" + NUM_SPACES[type_] if num == 0 else "",
+            name=match_type.group("arg_name"),
+            type_=match_type.group("arg_type"),
+            docs=arg_docs,
+        )
+
+        docs = docs.replace(param_statement, new_param)
+
+    return docs
+
+
+def format_returns(docs, type_):
+    match_type, type_statement = get_indexes(docs, ":rtype", ":returns:", RETURNS_TYPE)
+    match_param, param_statement = get_indexes(docs, ":returns:", "\n\n", RETURNS_DOCS)
+
+    if match_param is not None and match_type is not None:
+        rdocs = match_param.group("rdocs")
+
+        parts = docs.split(type_statement + "\n")
+        docs = parts[0] + parts[1].lstrip()
+
+        new_return = "Returns:\n{spaces}    ({type_}):{docs}".format(
+            spaces=NUM_SPACES[type_],
+            type_=match_type.group("rtype"),
+            docs=match_param.group("rdocs"),
+        )
+        docs = docs.replace(param_statement, new_return)
 
     return docs
 
 
 def replacements_for_args(docs, type_):
     rold = docs
-    for tag in (":type ",):
-        for num in range(docs.count(tag)):
-            docs = format_docs(docs, tag, num, type_)
+    for num in range(docs.count(":type ")):
+        docs = format_params(docs, num, type_)
+
+    if ":returns:" in docs:
+        docs = format_returns(docs, type_)
     return rold, docs
 
 

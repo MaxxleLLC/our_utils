@@ -3,6 +3,10 @@ import re
 import google.cloud.bigquery
 import google.cloud.bigquery.dbapi
 import mock
+import sys
+import glob
+import importlib.util
+from pathlib import Path
 
 ARG_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
 PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")
@@ -18,8 +22,24 @@ RETURN_SPACES = re.compile(r"\n+(?P<spaces>[\s]+):raises:")
 
 ARG_TYPE_NAME = re.compile(r"\((?P<arg_type_name>[\S]+)\):")
 CLASS_STATEMENT = re.compile(r":class:`[~]?(?P<class_name>[\S\d]+)`")
+EXC_STATEMENT = re.compile(r":exc:`[~]?(?P<exc_name>[\S\d]+)`")
+
+NEW_TYPE_STATEMENT = re.compile(r"\n[\s]+[\S]+ \((?P<arg_type>[^)]+)")
+OR_STATEMENT = re.compile(r"[\w\.`,\s]+or[\s]+[\w\.`]+")
 
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
+
+TYPES_TO_CAP = (
+    "dict",
+    "list",
+    "tuple",
+    "iterable",
+    "set",
+    "sequence",
+    "iterator",
+    "any",
+)
+CONTAINERS = ("Tuple", "Dict", "Sequence", "List")
 
 processed_objects = []
 
@@ -71,7 +91,30 @@ def delete_line(docs, contains):
     return parts[0] + parts[1].lstrip()
 
 
-def format_params(docs, num, type_):
+def designate_exc_types(rdocs):
+    exc_types = []
+    groups = []
+
+    exc_match_iter = EXC_STATEMENT.finditer(rdocs)
+    for match in exc_match_iter:
+        groups.append(match.group(0))
+        exc_types.append(match.group("exc_name"))
+
+    class_match_iter = CLASS_STATEMENT.finditer(rdocs)
+    for match in class_match_iter:
+        class_name = match.group("class_name")
+        if "error" in class_name.lower():
+            groups.append(match.group(0))
+            exc_types.append(match.group("class_name"))
+
+    if not len(groups) > 1:
+        for group in groups:
+            rdocs = rdocs.replace(group, "")
+
+    return exc_types, rdocs.lstrip()
+
+
+def format_params(docs, num, type_, addr):
     match_type, type_statement = get_indexes(docs, ":type ", ":param ", ARG_TYPE)
     match_param, param_statement = get_indexes(docs, ":param ", "\n\n", PARAM)
 
@@ -90,10 +133,14 @@ def format_params(docs, num, type_):
 
         docs = delete_line(docs, type_statement)
 
+        arg_type = capitalize_type(del_class_statements(match_type.group("arg_type")))
+        while arg_type[-1] == ".":
+            arg_type = arg_type[:-1]
+
         new_param = "{title}    {name} ({type_}):{docs}".format(
             title="Args:\n" + NUM_SPACES[type_] if num == 0 else "",
             name=match_type.group("arg_name"),
-            type_=match_type.group("arg_type"),
+            type_=arg_type,
             docs=arg_docs,
         )
 
@@ -107,10 +154,11 @@ def format_raises(docs, type_):
 
     if match is not None:
         rdocs = match.group("raises")
+        exc_types, rdocs = designate_exc_types(rdocs)
 
         if "\n" in rdocs:
             if not rdocs.startswith("\n"):
-                spaces = RETURN_SPACES.search(docs).group("spaces")
+                spaces = RETURN_SPACES.search(docs).group("spaces") + " " * 4
             else:
                 rdocs = rdocs[1:]
                 spaces = " " * (len(rdocs) - len(rdocs.lstrip()))
@@ -119,13 +167,15 @@ def format_raises(docs, type_):
         else:
             rdocs = " " + rdocs.lstrip()
 
-        new_raises = "Raises:{docs}".format(spaces=NUM_SPACES[type_], docs=rdocs)
+        new_raises = "Raises:\n{spaces}    {type_}:{docs}".format(
+            spaces=NUM_SPACES[type_], docs=rdocs, type_=", ".join(exc_types)
+        )
         docs = docs.replace(raises_statement, new_raises)
 
     return docs
 
 
-def format_returns(docs, type_):
+def format_returns(docs, type_, addr):
     match_type, type_statement = get_indexes(docs, ":rtype", ":returns:", RETURNS_TYPE)
     match_param, param_statement = get_indexes(
         docs, ":returns:", "Raises:", RETURNS_DOCS
@@ -147,8 +197,12 @@ def format_returns(docs, type_):
 
         docs = delete_line(docs, type_statement)
 
-        new_return = "Returns:\n{spaces}    ({type_}):{docs}".format(
-            spaces=NUM_SPACES[type_], type_=match_type.group("rtype"), docs=rdocs
+        rtype = capitalize_type(del_class_statements(match_type.group("rtype")))
+        while rtype[-1] == ".":
+            rtype = rtype[:-1]
+
+        new_return = "Returns:\n{spaces}    {type_}:{docs}".format(
+            spaces=NUM_SPACES[type_], type_=rtype, docs=rdocs
         )
 
         if "Raises:" in docs:
@@ -159,28 +213,85 @@ def format_returns(docs, type_):
     return docs
 
 
-def replacements_for_args(docs, type_):
+def del_class_statements(docs):
+    path = addr = ""
+    match_iter = CLASS_STATEMENT.finditer(docs)
+
+    for match in match_iter:
+        class_name = match.group("class_name")
+        if class_name.startswith("."):
+            class_name = class_name.split(".")[-1]
+
+            for key in codes:
+                if "class " + class_name in codes[key]:
+                    addr = str(key)
+
+            if addr:
+                path = (
+                    addr[addr.index("\google\cloud") + 1 : -3].replace("\\", ".") + "."
+                )
+        docs = docs.replace(match.group(0), path + class_name)
+    return docs
+
+
+def capitalize_type(type_def):
+    while type_def[-1] == ".":
+        type_def = type_def[:-1]
+
+    for name in TYPES_TO_CAP:
+        if type_def == name:
+            type_def = type_def.capitalize()
+        else:
+            pattern = re.compile("[\W]+" + name + "[\W]+")
+            match_iter = pattern.finditer(type_def)
+            for match in match_iter:
+                found = match.group(0)
+                found = found.replace(name, name.capitalize())
+                type_def = type_def.replace(match.group(0), found)
+
+    for cont in CONTAINERS:
+        if cont + " of " in type_def:
+            type_def = type_def.replace(" of ", "[")
+            type_def += "]"
+
+    match = OR_STATEMENT.match(type_def)
+    if not match is None:
+        or_statement = match.group(0)
+        if ", or" in or_statement:
+            sep = ""
+        elif " or\n" in or_statement:
+            sep = ", "
+        elif " or " in or_statement:
+            sep = ","
+
+        union_statement = "Union[" + or_statement.replace(" or", sep) + "]"
+        type_def = type_def.replace(or_statement, union_statement)
+
+    return type_def
+
+
+def replacements_for_args(docs, type_, addr):
     rold = docs
     for num in range(docs.count(":type ")):
-        docs = format_params(docs, num, type_)
+        docs = format_params(docs, num, type_, addr)
 
     if ":raises:" in docs:
         docs = format_raises(docs, type_)
 
     if ":returns:" in docs:
-        docs = format_returns(docs, type_)
+        docs = format_returns(docs, type_, addr)
 
     match_iter = ARG_TYPE_NAME.finditer(docs)
     for match in match_iter:
-        name = match.group("arg_type_name")
-        if name in ("dict", "list", "tuple", "iterable", "set", "sequence", "iterator"):
-            name = name.capitalize()
-
+        name = capitalize_type(match.group("arg_type_name"))
         docs = docs.replace(match.group(0), "(" + name + "):")
 
-    match_iter = CLASS_STATEMENT.finditer(docs)
+    match_iter = NEW_TYPE_STATEMENT.finditer(docs)
     for match in match_iter:
-        docs = docs.replace(match.group(0), match.group("class_name"))
+        old_group = match.group(0)
+        arg_type_old = match.group("arg_type")
+        new_group = old_group.replace(arg_type_old, del_class_statements(arg_type_old))
+        docs = docs.replace(old_group, new_group)
 
     return rold, docs
 
@@ -192,7 +303,7 @@ def untouched(docs):
 
 def rewrite_docs(docs, type_, addr):
     if docs:
-        old, new = replacements_for_args(docs, type_)
+        old, new = replacements_for_args(docs, type_, addr)
         if new and old:
             write_to_file(old, new, addr)
 
@@ -231,6 +342,14 @@ def process_members(obj):
                 process_members(member)
 
             processed_objects.append(obj)
+
+
+codes = {}
+for filename in Path(
+    r"C:/Users/ubc/AppData/Local/Programs/Python/Python37-32/Lib/site-packages/google/cloud/bigquery"
+).glob("**/*.py"):
+    with open(filename, "r") as file:
+        codes[filename] = file.read()
 
 
 process_members(google.cloud.bigquery)

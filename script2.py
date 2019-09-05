@@ -1,12 +1,10 @@
 import inspect
 import re
+import mock
+from pathlib import Path
+
 import google.cloud.bigquery
 import google.cloud.bigquery.dbapi
-import mock
-import sys
-import glob
-import importlib.util
-from pathlib import Path
 
 ARG_TYPE = re.compile(r":type[\s]+(?P<arg_name>[\S]+):[\s\n]+(?P<arg_type>[\S\s]+)")
 PARAM = re.compile(r":param[\s]+([\S]+):(?P<arg_docs>[\S\s]+)")

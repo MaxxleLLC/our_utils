@@ -57,6 +57,12 @@ def write_to_file(old, new, addr):
             file.write(lines)
 
 
+def del_last_points(docs):
+    while docs[-1] == ".":
+        docs = docs[:-1]
+    return docs
+
+
 def add_spaces(docs, spaces):
     docs = docs.split("\n")
     for index, line in enumerate(docs):
@@ -133,9 +139,9 @@ def format_params(docs, num, type_, addr):
 
         docs = delete_line(docs, type_statement)
 
-        arg_type = capitalize_type(del_class_statements(match_type.group("arg_type")))
-        while arg_type[-1] == ".":
-            arg_type = arg_type[:-1]
+        arg_type = del_last_points(
+            capitalize_type(del_class_statements(match_type.group("arg_type")))
+        )
 
         new_param = "{title}    {name} ({type_}):{docs}".format(
             title="Args:\n" + NUM_SPACES[type_] if num == 0 else "",
@@ -197,9 +203,9 @@ def format_returns(docs, type_, addr):
 
         docs = delete_line(docs, type_statement)
 
-        rtype = capitalize_type(del_class_statements(match_type.group("rtype")))
-        while rtype[-1] == ".":
-            rtype = rtype[:-1]
+        rtype = del_last_points(
+            capitalize_type(del_class_statements(match_type.group("rtype")))
+        )
 
         new_return = "Returns:\n{spaces}    {type_}:{docs}".format(
             spaces=NUM_SPACES[type_], type_=rtype, docs=rdocs
@@ -235,8 +241,7 @@ def del_class_statements(docs):
 
 
 def capitalize_type(type_def):
-    while type_def[-1] == ".":
-        type_def = type_def[:-1]
+    type_def = del_last_points(type_def)
 
     for name in TYPES_TO_CAP:
         if type_def == name:
@@ -271,7 +276,6 @@ def capitalize_type(type_def):
 
 
 def replacements_for_args(docs, type_, addr):
-    rold = docs
     for num in range(docs.count(":type ")):
         docs = format_params(docs, num, type_, addr)
 
@@ -293,7 +297,7 @@ def replacements_for_args(docs, type_, addr):
         new_group = old_group.replace(arg_type_old, del_class_statements(arg_type_old))
         docs = docs.replace(old_group, new_group)
 
-    return rold, docs
+    return docs
 
 
 def untouched(docs):
@@ -302,8 +306,8 @@ def untouched(docs):
 
 
 def rewrite_docs(docs, type_, addr):
-    old, new = replacements_for_args(docs, type_, addr)
-    write_to_file(old, new, addr)
+    new = replacements_for_args(docs, type_, addr)
+    write_to_file(docs, new, addr)
 
 
 def process_members(obj):

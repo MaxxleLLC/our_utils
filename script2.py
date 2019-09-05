@@ -302,46 +302,45 @@ def untouched(docs):
 
 
 def rewrite_docs(docs, type_, addr):
-    if docs:
-        old, new = replacements_for_args(docs, type_, addr)
-        if new and old:
-            write_to_file(old, new, addr)
+    old, new = replacements_for_args(docs, type_, addr)
+    write_to_file(old, new, addr)
 
 
 def process_members(obj):
-    # disabling inspect docs formating
-    with mock.patch("inspect.cleandoc", side_effect=untouched):
-        for name, member in inspect.getmembers(obj):
-            # skip processed members and builtins
-            if member in processed_objects or name.startswith("__"):
-                continue
+    for name, member in inspect.getmembers(obj):
+        # skip processed members and builtins
+        if member in processed_objects or name.startswith("__"):
+            continue
 
-            try:
-                addr = inspect.getsourcefile(member)
-            except TypeError:
-                continue
+        # skip compiled modules
+        try:
+            addr = inspect.getsourcefile(member)
+        except TypeError:
+            continue
 
-            if "google\cloud" not in addr:  # process only Google modules
-                continue
+        if "google\cloud" not in addr:  # process only Google modules
+            continue
 
-            is_method = inspect.ismethod(member) or isinstance(member, property)
-            is_func = inspect.isfunction(member)
-            docs = inspect.getdoc(member)
+        is_method = inspect.ismethod(member) or isinstance(member, property)
 
-            if is_method or is_func:
-                if not is_method:
-                    is_method = "self" in inspect.getfullargspec(member).args
+        docs = inspect.getdoc(member)
+        if not docs:  # skip, if no docs on member
+            continue
 
-                type_ = "method" if is_method else "func"
-                rewrite_docs(docs, type_, addr)
+        if is_method or inspect.isfunction(member):
+            if not is_method:  # kludge: some methods somehow have type "function"
+                is_method = "self" in inspect.getfullargspec(member).args
 
-            elif inspect.isclass(member) or inspect.ismodule(member):
-                if inspect.isclass(member):
-                    rewrite_docs(docs, "func", addr)
+            type_ = "method" if is_method else "func"
+            rewrite_docs(docs, type_, addr)
 
-                process_members(member)
+        elif inspect.isclass(member) or inspect.ismodule(member):
+            if inspect.isclass(member):
+                rewrite_docs(docs, "func", addr)
 
-            processed_objects.append(obj)
+            process_members(member)
+
+        processed_objects.append(obj)
 
 
 codes = {}
@@ -351,6 +350,7 @@ for filename in Path(
     with open(filename, "r") as file:
         codes[filename] = file.read()
 
-
-process_members(google.cloud.bigquery)
-process_members(google.cloud.bigquery.dbapi)
+# disabling inspect docs formating
+with mock.patch("inspect.cleandoc", side_effect=untouched):
+    process_members(google.cloud.bigquery)
+    process_members(google.cloud.bigquery.dbapi)

@@ -25,6 +25,10 @@ EXC_STATEMENT = re.compile(r":exc:`[~]?(?P<exc_name>[\S\d]+)`")
 NEW_TYPE_STATEMENT = re.compile(r"\n[\s]+[\S]+ \((?P<arg_type>[^)]+)")
 OR_STATEMENT = re.compile(r"[\w\.`,\s]+or[\s]+[\w\.`]+")
 
+LIST_OF_STATEMENT = re.compile(r"list of[\s\S\.`,\n]+")
+# TUPLE_OF_STATEMENT = re.compile(r"tuple of[\s\S\.`,\n]+")
+TUPLE_OF_STATEMENT = re.compile(r"tuple of")
+
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
 
 TYPES_TO_CAP = (
@@ -269,6 +273,18 @@ def capitalize_type(type_def):
 
         union_statement = "Union[" + or_statement.replace(" or", sep) + "]"
         type_def = type_def.replace(or_statement, union_statement)
+
+    match = LIST_OF_STATEMENT.match(type_def)
+    if match is not None:
+        old = match.group(0)
+        new = "List[" + old.split(" of")[-1].lstrip() + "]"
+        type_def = type_def.replace(old, new)
+
+    match2 = TUPLE_OF_STATEMENT.match(type_def)
+    if match2 is not None:
+        old = match2.group(0)
+        new = "Tuple[" + old.split(" of")[-1].lstrip() + "]"
+        type_def = type_def.replace(old, new)
 
     return type_def
 

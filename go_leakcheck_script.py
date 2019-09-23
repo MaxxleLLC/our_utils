@@ -25,13 +25,11 @@ for filename in Path(r"C:/go_wd/src/cloud.google.com/go").glob("**/*_test.go"):
                         break
                     cursor -= 1
 
+                ins_index = cursor + 1
                 if skip_line:
+                    ins_index = skip_ind + 1
                     if skip_line.startswith("\t\t"):
                         ins_index = skip_ind + 2
-                    else:
-                        ins_index = skip_ind + 1
-                else:
-                    ins_index = cursor + 1
 
                 to_insert.append(ins_index)
 

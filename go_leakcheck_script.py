@@ -28,7 +28,7 @@ for filename in Path(r"C:/go_wd/src/cloud.google.com/go").glob("**/*_test.go"):
                 if skip_line:
                     if skip_line.startswith("\t\t"):
                         ins_index = skip_ind + 2
-                    elif skip_line.startswith("\t"):
+                    else:
                         ins_index = skip_ind + 1
                 else:
                     ins_index = cursor + 1

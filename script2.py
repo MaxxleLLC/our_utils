@@ -221,24 +221,35 @@ def format_returns(docs, type_, addr):
     return docs
 
 
+def full_class_path(class_name):
+    addr = path = ""
+    if class_name.startswith("."):
+        class_name = class_name.split(".")[-1]
+
+        for key in codes:
+            if "class " + class_name in codes[key]:
+                addr = str(key)
+
+        if addr:
+            path = (
+                addr[addr.index("\google\cloud") + 1 : -3].replace("\\", ".") + "."
+            )
+
+    return path, class_name
+
+
 def del_class_statements(docs):
-    path = addr = ""
+    path = ""
     match_iter = CLASS_STATEMENT.finditer(docs)
 
     for match in match_iter:
         class_name = match.group("class_name")
-        if class_name.startswith("."):
-            class_name = class_name.split(".")[-1]
-
-            for key in codes:
-                if "class " + class_name in codes[key]:
-                    addr = str(key)
-
-            if addr:
-                path = (
-                    addr[addr.index("\google\cloud") + 1 : -3].replace("\\", ".") + "."
-                )
+        path, class_name = full_class_path(class_name)
         docs = docs.replace(match.group(0), path + class_name)
+
+    path, class_name_new = full_class_path(docs)
+    docs = docs.replace(docs, path + class_name_new)
+
     return docs
 
 
@@ -272,10 +283,6 @@ def capitalize_type(type_def):
             sep = ","
 
         union_statement = "Union[" + or_statement.replace(" or", sep) + "]"
-        if "None" in union_statement:
-            union_statement = union_statement.replace("Union", "Optional")
-            union_statement = union_statement.split(sep)[0] + "]"
-
         type_def = type_def.replace(or_statement, union_statement)
 
     match = LIST_OF_STATEMENT.match(type_def)
@@ -289,6 +296,10 @@ def capitalize_type(type_def):
         old = match2.group(0)
         new = "Tuple[" + old.split(" of")[-1].lstrip() + "]"
         type_def = type_def.replace(old, new)
+
+    if "None" in type_def and "Union" in type_def:
+        type_def = type_def.replace("Union", "Optional")
+        type_def = type_def.split(sep)[0] + "]"
 
     return type_def
 

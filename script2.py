@@ -272,6 +272,10 @@ def capitalize_type(type_def):
             sep = ","
 
         union_statement = "Union[" + or_statement.replace(" or", sep) + "]"
+        if "None" in union_statement:
+            union_statement = union_statement.replace("Union", "Optional")
+            union_statement = union_statement.split(sep)[0] + "]"
+
         type_def = type_def.replace(or_statement, union_statement)
 
     match = LIST_OF_STATEMENT.match(type_def)

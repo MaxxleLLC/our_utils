@@ -1,3 +1,5 @@
+# TODO: in new-styled returns check types to capitalize
+# TODO: if docs are short-line, delete \n
 import inspect
 import re
 import mock
@@ -30,7 +32,6 @@ LIST_OF_STATEMENT = re.compile(r"list of[\s\S\.`,\n]+")
 TUPLE_OF_STATEMENT = re.compile(r"tuple of")
 
 NUM_SPACES = {"func": " " * 4, "method": " " * 8}
-
 TYPES_TO_CAP = (
     "dict",
     "list",
@@ -185,12 +186,12 @@ def format_raises(docs, type_):
 
 def format_returns(docs, type_, addr):
     match_type, type_statement = get_indexes(docs, ":rtype", ":returns:", RETURNS_TYPE)
-    match_param, param_statement = get_indexes(
+    match_return, old_return = get_indexes(
         docs, ":returns:", "Raises:", RETURNS_DOCS
     )
 
-    if match_param is not None and match_type is not None:
-        rdocs = match_param.group("rdocs")
+    if match_return is not None and match_type is not None:
+        rdocs = match_return.group("rdocs")
 
         if "\n" in rdocs:
             if not rdocs.startswith("\n"):
@@ -216,7 +217,7 @@ def format_returns(docs, type_, addr):
         if "Raises:" in docs:
             new_return += "\n"
 
-        docs = docs.replace(param_statement, new_return)
+        docs = docs.replace(old_return, new_return)
 
     return docs
 
